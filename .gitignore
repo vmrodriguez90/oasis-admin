@@ -1,0 +1,17 @@
+node_modules
+dist
+*.local
+.env
+.env.*
+!.env.example
+
+# Firebase
+.firebase/
+*-debug.log
+firebase-debug.*.log
+ui-debug.log
+
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
