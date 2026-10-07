@@ -1,0 +1,210 @@
+rules_version = '2';
+
+// Quién puede qué. La app esconde los botones que no corresponden, pero la
+// seguridad real es esta: cualquiera puede abrir la consola del navegador.
+//
+//   admin    todo, más el equipo y el inventario de sombras
+//   manager  carga y edita reservas, clientes, pagos y consultas
+//   lectura  ve todo, no escribe nada
+//
+// Se entra con Google y el acceso se da por email en staff/{email}. El primer
+// admin se carga a mano desde la consola de Firebase (ver README).
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function email() {
+      return request.auth.token.email.lower();
+    }
+    function staffRef() {
+      return /databases/$(database)/documents/staff/$(email());
+    }
+    function autenticado() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function miembro() {
+      return autenticado() && exists(staffRef()) && get(staffRef()).data.activo == true;
+    }
+    function rol() {
+      return get(staffRef()).data.rol;
+    }
+    function lee() {
+      return miembro();
+    }
+    function edita() {
+      return miembro() && rol() in ['admin', 'manager'];
+    }
+    function admin() {
+      return miembro() && rol() == 'admin';
+    }
+
+    // ── Validación ───────────────────────────────────────────────────────
+    function campos(lista) {
+      return request.resource.data.keys().hasOnly(lista) && request.resource.data.keys().hasAll(lista);
+    }
+    function texto(v, max) {
+      return v is string && v.size() <= max;
+    }
+    function requerido(v, max) {
+      return texto(v, max) && v.size() > 0;
+    }
+    function fecha(v) {
+      return v is string && v.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+    function pesos(v) {
+      return v is int && v >= 0 && v <= 1000000000;
+    }
+    // Espejo de temporadaDe() en src/lib/fechas.ts: julio a junio, "2026/27".
+    function temporadaDe(f) {
+      let y = int(f[0:4]);
+      let inicio = int(f[5:7]) >= 7 ? y : y - 1;
+      return string(inicio) + '/' + string(inicio + 1)[2:4];
+    }
+    // Alta: el sello lo pone el servidor y la firma es de quien escribe.
+    function altaAuditada() {
+      return request.resource.data.creado == request.time
+        && request.resource.data.creadoPor == email();
+    }
+    // Edición: el sello de alta no se toca.
+    function auditoriaIntacta() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['creado', 'creadoPor']);
+    }
+
+    // ── Equipo ───────────────────────────────────────────────────────────
+    function staffValido() {
+      let d = request.resource.data;
+      return campos(['nombre', 'rol', 'activo'])
+        && texto(d.nombre, 80)
+        && d.rol in ['admin', 'manager', 'lectura']
+        && d.activo is bool;
+    }
+
+    match /staff/{mail} {
+      // Cada uno lee su propia ficha para saber su rol; el admin, todas.
+      allow get: if autenticado() && (mail == email() || admin());
+      allow list: if admin();
+      allow create: if admin() && mail == mail.lower() && mail.matches('^[^@/]+@[^@/]+$') && staffValido();
+      // Un admin no puede bajarse el rol ni quitarse el acceso a sí mismo:
+      // así nunca se queda el club sin nadie que pueda dar permisos.
+      allow update: if admin() && staffValido()
+        && (mail != email() || (request.resource.data.rol == 'admin' && request.resource.data.activo == true));
+      allow delete: if admin() && mail != email();
+    }
+
+    // ── Inventario de sombras ────────────────────────────────────────────
+    function unidadValida() {
+      let d = request.resource.data;
+      return campos(['codigo', 'tipo', 'sector', 'orden', 'activa'])
+        && requerido(d.codigo, 20)
+        && d.tipo in ['carpa', 'palapa', 'guorum']
+        && texto(d.sector, 40)
+        && d.orden is int
+        && d.activa is bool;
+    }
+
+    match /unidades/{id} {
+      allow read: if lee();
+      allow create, update: if admin() && unidadValida();
+      allow delete: if admin();
+    }
+
+    // ── Clientes ─────────────────────────────────────────────────────────
+    function clienteValido() {
+      let d = request.resource.data;
+      return campos(['nombre', 'telefono', 'email', 'documento', 'notas', 'creado', 'creadoPor'])
+        && requerido(d.nombre, 120)
+        && texto(d.telefono, 40)
+        && texto(d.email, 120)
+        && texto(d.documento, 20)
+        && texto(d.notas, 2000);
+    }
+
+    match /clientes/{id} {
+      allow read: if lee();
+      allow create: if edita() && altaAuditada() && clienteValido();
+      allow update: if edita() && auditoriaIntacta() && clienteValido();
+      allow delete: if admin();
+    }
+
+    // ── Reservas ─────────────────────────────────────────────────────────
+    // Que dos reservas no se pisen en la misma sombra lo controla la app al
+    // guardar; las reglas no pueden consultar otros documentos por rango.
+    function reservaValida() {
+      let d = request.resource.data;
+      return campos(['unidadId', 'unidadCodigo', 'unidadTipo', 'clienteId', 'clienteNombre', 'desde', 'hasta',
+                     'modalidad', 'temporada', 'precio', 'estado', 'notas', 'creado', 'creadoPor'])
+        // existsAfter: el cliente puede llegar en el mismo lote que la reserva.
+        && existsAfter(/databases/$(database)/documents/unidades/$(d.unidadId))
+        && existsAfter(/databases/$(database)/documents/clientes/$(d.clienteId))
+        && requerido(d.unidadCodigo, 20)
+        && d.unidadTipo in ['carpa', 'palapa', 'guorum']
+        && requerido(d.clienteNombre, 120)
+        && fecha(d.desde) && fecha(d.hasta) && d.desde <= d.hasta
+        && d.temporada == temporadaDe(d.desde)
+        && d.modalidad in ['dia', 'semana', 'quincena', 'mes', 'temporada']
+        && pesos(d.precio)
+        && d.estado in ['pendiente', 'confirmada', 'cancelada']
+        && texto(d.notas, 2000);
+    }
+
+    match /reservas/{id} {
+      allow read: if lee();
+      allow create: if edita() && altaAuditada() && reservaValida();
+      allow update: if edita() && auditoriaIntacta() && reservaValida();
+      // El encargado cancela; borrar queda para corregir errores de carga.
+      allow delete: if admin();
+    }
+
+    // ── Pagos ────────────────────────────────────────────────────────────
+    function pagoValido() {
+      let d = request.resource.data;
+      let reserva = get(/databases/$(database)/documents/reservas/$(d.reservaId)).data;
+      return campos(['reservaId', 'clienteId', 'clienteNombre', 'unidadCodigo', 'temporada', 'monto', 'metodo',
+                     'fecha', 'nota', 'creado', 'creadoPor'])
+        && d.clienteId == reserva.clienteId
+        && d.temporada == reserva.temporada
+        && requerido(d.clienteNombre, 120)
+        && requerido(d.unidadCodigo, 20)
+        && pesos(d.monto) && d.monto > 0
+        && d.metodo in ['efectivo', 'transferencia', 'mercadopago', 'tarjeta']
+        && fecha(d.fecha)
+        && texto(d.nota, 500);
+    }
+
+    match /pagos/{id} {
+      allow read: if lee();
+      allow create: if edita() && altaAuditada() && pagoValido();
+      // Un pago no se edita: si se cargó mal, un admin lo borra y se vuelve a
+      // cargar. Así cada cobro queda firmado por quien lo registró. Sólo se
+      // ponen al día las copias del nombre del cliente y el código de la sombra
+      // cuando cambian los originales.
+      allow update: if edita()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clienteNombre', 'unidadCodigo'])
+        && requerido(request.resource.data.clienteNombre, 120)
+        && requerido(request.resource.data.unidadCodigo, 20);
+      allow delete: if admin();
+    }
+
+    // ── Consultas ────────────────────────────────────────────────────────
+    function consultaValida() {
+      let d = request.resource.data;
+      return campos(['nombre', 'contacto', 'canal', 'interes', 'fechas', 'mensaje', 'estado', 'clienteId',
+                     'creado', 'creadoPor'])
+        && requerido(d.nombre, 120)
+        && texto(d.contacto, 120)
+        && d.canal in ['whatsapp', 'telefono', 'email', 'instagram', 'presencial', 'web']
+        && d.interes in ['carpa', 'palapa', 'guorum', 'evento', 'otro']
+        && texto(d.fechas, 120)
+        && texto(d.mensaje, 2000)
+        && d.estado in ['nueva', 'en_curso', 'ganada', 'perdida']
+        && (d.clienteId == null || d.clienteId is string);
+    }
+
+    match /consultas/{id} {
+      allow read: if lee();
+      allow create: if edita() && altaAuditada() && consultaValida();
+      allow update: if edita() && auditoriaIntacta() && consultaValida();
+      allow delete: if admin();
+    }
+  }
+}
