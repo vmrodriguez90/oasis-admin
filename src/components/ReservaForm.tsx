@@ -81,8 +81,8 @@ export function ReservaForm({
     if (!nuevo && !clienteSel) return setError('Elegí un cliente o cargá uno nuevo.')
     if (nuevo && !nuevo.nombre.trim()) return setError('Falta el nombre del cliente nuevo.')
     if (!fechasOk) return setError('Revisá las fechas: "hasta" no puede ser anterior a "desde".')
-    if (!unidadSel) return setError('Elegí la sombra.')
-    // Sin las reservas cargadas no se puede saber si la sombra está libre.
+    if (!unidadSel) return setError('Elegí la unidad.')
+    // Sin las reservas cargadas no se puede saber si la unidad está libre.
     if (reservas.cargando) return setError('Todavía se están cargando las reservas, probá en un segundo.')
     if (choqueSel.length) return setError(`${unidadSel.codigo} ya está reservada en esas fechas.`)
     if (monto == null) return setError('El precio tiene que ser un número, en pesos.')
@@ -110,10 +110,11 @@ export function ReservaForm({
         unidadId: unidadSel.id, unidadCodigo: unidadSel.codigo, unidadTipo: unidadSel.tipo,
         clienteId: cId, clienteNombre: cNombre, desde, hasta, modalidad, temporada,
         precio: monto, estado: reserva?.estado === 'cancelada' ? 'cancelada' : estado, notas: notas.trim(),
+        origen: 'manual', externoId: null, saldoExterno: null, reservadaEl: reserva?.reservadaEl ?? hoy(),
       } satisfies Omit<Reserva, 'creado' | 'creadoPor'>
       if (reserva) {
         lote.update(doc(C.reservas, reserva.id), datos)
-        // Los pagos guardan copia del código de la sombra.
+        // Los pagos guardan copia del código de la unidad.
         if (datos.unidadCodigo !== reserva.unidadCodigo) {
           for (const p of pagosReserva.datos) lote.update(doc(C.pagos, p.id), { unidadCodigo: datos.unidadCodigo })
         }
@@ -182,7 +183,7 @@ export function ReservaForm({
           </div>
 
           <Campo
-            label="Sombra"
+            label="Unidad"
             ayuda={choqueSel.length
               ? undefined
               : fechasOk ? 'Las ocupadas en esas fechas aparecen deshabilitadas.' : undefined}
@@ -209,7 +210,7 @@ export function ReservaForm({
             </p>
           )}
           {unidades.datos.length === 0 && !unidades.cargando && (
-            <p className="nota">Todavía no hay sombras cargadas. Un administrador las carga en Ajustes → Sombras.</p>
+            <p className="nota">Todavía no hay unidades cargadas. Un administrador las carga en Ajustes → Unidades, o importando el archivo del sistema de reservas.</p>
           )}
 
           <div className="fila-campos">

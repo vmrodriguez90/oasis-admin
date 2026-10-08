@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
-  Timestamp, addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where, writeBatch,
+  Timestamp, addDoc, collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, updateDoc, where,
   type CollectionReference, type DocumentData, type DocumentReference, type FieldValue, type Query,
 } from 'firebase/firestore'
 import { auth, db } from '../firebase'
-import type { Cliente, ConId, Consulta, Pago, Reserva, Staff, Unidad } from './types'
+import type { Cliente, ConId, Consulta, Importacion, Pago, Reserva, Staff, Unidad } from './types'
 
 function col<T>(nombre: string) {
   return collection(db, nombre) as CollectionReference<T, DocumentData>
@@ -17,6 +17,7 @@ export const C = {
   reservas: col<Reserva>('reservas'),
   pagos: col<Pago>('pagos'),
   consultas: col<Consulta>('consultas'),
+  importaciones: col<Importacion>('importaciones'),
 }
 
 export const q = {
@@ -25,6 +26,7 @@ export const q = {
   reservasDeCliente: (id: string) => query(C.reservas, where('clienteId', '==', id)),
   pagosDeCliente: (id: string) => query(C.pagos, where('clienteId', '==', id)),
   pagosDeReserva: (id: string) => query(C.pagos, where('reservaId', '==', id)),
+  importadas: () => query(C.reservas, where('origen', '==', 'importada')),
   consultasDeTemporada: (t: string) => {
     const y = Number(t.slice(0, 4))
     // La temporada va de julio a junio, en hora de Argentina.
@@ -126,7 +128,7 @@ export function mensajeDeError(e: unknown): string {
 
 /**
  * Reservas y pagos guardan una copia del nombre del cliente y del código de la
- * sombra para poder listarlos sin cruzar colecciones. Si el original cambia,
+ * unidad para poder listarlos sin cruzar colecciones. Si el original cambia,
  * esto pone al día las copias.
  */
 export async function propagarCambio(
@@ -142,10 +144,27 @@ export async function propagarCambio(
     : await Promise.all(reservas.docs.map((r) => getDocs(query(C.pagos, where('reservaId', '==', r.id)))))
   const refs = [reservas, ...pagos].flatMap((snap) =>
     snap.docs.filter((d) => d.get(campo) !== valor).map((d) => d.ref as DocumentReference<DocumentData>))
-  // Un lote admite 500 escrituras.
-  for (let i = 0; i < refs.length; i += 450) {
-    const lote = writeBatch(db)
-    for (const ref of refs.slice(i, i + 450)) lote.update(ref, { [campo]: valor })
-    await lote.commit()
+  await enTandas(refs.map((ref) => () => updateDoc(ref, { [campo]: valor })))
+}
+
+/**
+ * Corre muchas escrituras de a varias por vez. No van en un lote: las reglas
+ * permiten 20 lecturas de validación por lote, y cada reserva consulta su
+ * unidad y su cliente, así que un lote grande de reservas se rechazaría.
+ */
+export async function enTandas(
+  tareas: (() => Promise<unknown>)[],
+  alAvanzar?: (hechas: number) => void,
+  simultaneas = 25,
+): Promise<void> {
+  let siguiente = 0
+  let hechas = 0
+  async function trabajador() {
+    while (siguiente < tareas.length) {
+      const tarea = tareas[siguiente++]!
+      await tarea()
+      alAvanzar?.(++hechas)
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(simultaneas, tareas.length) }, trabajador))
 }

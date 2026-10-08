@@ -11,6 +11,11 @@ dist
 firebase-debug.*.log
 ui-debug.log
 
+# Exports del sistema de reservas: tienen datos personales de clientes.
+*.xls
+*.xlsx
+Reservas_*
+
 .DS_Store
 .vscode/*
 !.vscode/extensions.json

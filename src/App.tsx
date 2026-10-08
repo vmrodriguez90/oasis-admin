@@ -10,7 +10,8 @@ import { Estadisticas } from './pages/Estadisticas'
 import { Login } from './pages/Login'
 import { Pagos } from './pages/Pagos'
 import { Reservas } from './pages/Reservas'
-import { Sombras } from './pages/Sombras'
+import { Unidades } from './pages/Unidades'
+import { Importar } from './pages/Importar'
 import { useSesion } from './sesion'
 
 export function App() {
@@ -28,7 +29,8 @@ export function App() {
           <Route path="clientes/:id" element={<ClienteDetalle />} />
           <Route path="pagos" element={<Pagos />} />
           <Route path="consultas" element={<Consultas />} />
-          {admin && <Route path="sombras" element={<Sombras />} />}
+          {admin && <Route path="unidades" element={<Unidades />} />}
+          {admin && <Route path="importar" element={<Importar />} />}
           {admin && <Route path="equipo" element={<Equipo />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

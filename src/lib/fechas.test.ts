@@ -49,3 +49,15 @@ describe('fechas', () => {
     expect(meses).toHaveLength(12)
   })
 })
+
+describe('fechas para comparar temporadas', () => {
+  it('va un año atrás y a la temporada anterior', async () => {
+    const { unAnioAntes, temporadaAnterior, diasEntre } = await import('./fechas')
+    expect(unAnioAntes('2026-10-07')).toBe('2025-10-07')
+    expect(unAnioAntes('2028-02-29')).toBe('2027-02-28')
+    expect(temporadaAnterior('2026/27')).toBe('2025/26')
+    expect(temporadaAnterior('2000/01')).toBe('1999/00')
+    expect(diasEntre('2026-12-31', '2027-01-02')).toBe(2)
+    expect(diasEntre('2027-01-02', '2026-12-31')).toBe(-2)
+  })
+})

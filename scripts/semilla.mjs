@@ -4,6 +4,9 @@
 //   npm run emu          (en otra terminal)
 //   npm run semilla
 //   npm run dev:emu      y entrar como admin@oasis.test
+//
+// Para probar con datos reales, en vez de la semilla importá el archivo del
+// sistema de reservas desde Ajustes → Importar (sólo queda en el emulador).
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing'
 import { Timestamp, doc, writeBatch } from 'firebase/firestore'
 
@@ -33,7 +36,9 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   lote.set(doc(db, 'staff', 'lectura@oasis.test'), { nombre: 'Contador', rol: 'lectura', activo: true })
 
   const unidades = []
-  for (const [tipo, pre, n, sector] of [['carpa', 'C-', 24, 'Fila 1'], ['palapa', 'P-', 10, 'Frente al mar'], ['guorum', 'G-', 4, 'Pileta']]) {
+  for (const [tipo, pre, n, sector] of [
+    ['carpa', 'C-', 24, 'Fila 1'], ['sombrilla', 'S-', 10, 'Frente al mar'], ['guorum', 'G-', 4, 'Pileta'], ['cochera', 'CO-', 8, ''],
+  ]) {
     for (let i = 1; i <= n; i++) {
       const id = `${pre}${String(i).padStart(2, '0')}`
       unidades.push({ id, tipo })
@@ -60,7 +65,8 @@ await env.withSecurityRulesDisabled(async (ctx) => {
     const temporada = temporadaDe(desde)
     lote.set(doc(db, 'reservas', `res${i}`), {
       unidadId: u.id, unidadCodigo: u.id, unidadTipo: u.tipo, clienteId: `cli${c}`, clienteNombre: nombres[c],
-      desde, hasta, modalidad, temporada, precio, estado, notas: '', creado: ahora, creadoPor: quien,
+      desde, hasta, modalidad, temporada, precio, estado, notas: '', origen: 'manual', externoId: null, saldoExterno: null,
+      reservadaEl: mas(hoy, -((i * 7) % 60)), creado: ahora, creadoPor: quien,
     })
     if (estado !== 'cancelada') {
       const pagos = i % 3 === 0 ? [precio] : i % 3 === 1 ? [Math.round(precio / 2)] : []
@@ -73,7 +79,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
 
   const consultas = [
     ['Paula Giménez', '2291 555123', 'whatsapp', 'carpa', 'Segunda quincena de enero', '¿Tienen carpas en primera fila?', 'nueva'],
-    ['Diego Herrera', 'diego@example.com', 'email', 'palapa', 'Febrero completo', '', 'en_curso'],
+    ['Diego Herrera', 'diego@example.com', 'email', 'sombrilla', 'Febrero completo', '', 'en_curso'],
     ['Flor Castro', '223 4567890', 'instagram', 'evento', '14 de febrero', 'Cumpleaños de 40 al atardecer, 30 personas', 'nueva'],
     ['Ramiro Molina', '2291 444222', 'telefono', 'carpa', 'Temporada', '', 'ganada'],
     ['Agustina Silva', '2291 333111', 'presencial', 'guorum', 'Enero', 'Pregunta por precios de pileta', 'perdida'],

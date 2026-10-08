@@ -38,7 +38,7 @@ export function Pagos() {
   function exportar() {
     descargar(`pagos-${temporada.replace('/', '-')}${mes ? `-${mes}` : ''}.csv`, aCSV(
       filas.map((p) => ({ ...p, metodo: METODOS_PAGO[p.metodo] })),
-      [['fecha', 'Fecha'], ['clienteNombre', 'Cliente'], ['unidadCodigo', 'Sombra'], ['metodo', 'Medio'],
+      [['fecha', 'Fecha'], ['clienteNombre', 'Cliente'], ['unidadCodigo', 'Unidad'], ['metodo', 'Medio'],
         ['monto', 'Monto'], ['nota', 'Nota'], ['creadoPor', 'Cargado por']],
     ))
   }
@@ -73,7 +73,7 @@ export function Pagos() {
           <option value="">Todos los medios</option>
           {Object.entries(METODOS_PAGO).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
-        <input className="input buscar" type="search" placeholder="Buscar cliente, sombra o nota" value={buscar}
+        <input className="input buscar" type="search" placeholder="Buscar cliente, unidad o nota" value={buscar}
           onChange={(e) => setBuscar(e.target.value)} aria-label="Buscar" />
         <button type="button" className="btn btn-sec" onClick={exportar} disabled={!filas.length}><Download size={16} />CSV</button>
       </div>
@@ -87,7 +87,7 @@ export function Pagos() {
         ) : (
           <table>
             <thead>
-              <tr><th>Fecha</th><th>Cliente</th><th>Sombra</th><th className="ocultar-movil">Medio</th>
+              <tr><th>Fecha</th><th>Cliente</th><th>Unidad</th><th className="ocultar-movil">Medio</th>
                 <th className="num">Monto</th><th className="ocultar-movil">Cargado por</th></tr>
             </thead>
             <tbody>

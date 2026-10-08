@@ -8,7 +8,7 @@ import { C, q, useLista } from '../lib/db'
 import { pesos } from '../lib/dinero'
 import { esFechaValida, fechaCorta, fechaLarga, hoy, mayuscula, plural, rango, sumarDias, temporadaDe } from '../lib/fechas'
 import { puedeEditar } from '../lib/permisos'
-import { activa, ocupacionDelDia, ordenarUnidades, pagadoPorReserva, saldo } from '../lib/reservas'
+import { activa, claveReserva, ocupacionDelDia, ordenarUnidades, pagadoDe, pagadoPorReserva, saldo } from '../lib/reservas'
 import { ESTADOS_RESERVA, MODALIDADES, TIPOS_UNIDAD, type TipoUnidad } from '../lib/types'
 import { useTemporada, useUsuario } from '../sesion'
 
@@ -45,13 +45,16 @@ export function Reservas() {
   const filas = useMemo(() => {
     const t = buscar.trim().toLowerCase()
     return reservas.datos
-      .map((r) => ({ ...r, pagado: pagado.get(r.id) ?? 0, saldo: saldo(r, pagado.get(r.id) ?? 0) }))
+      .map((r) => {
+        const p = pagadoDe(r, pagado)
+        return { ...r, pagado: p, saldo: saldo(r, p) }
+      })
       .filter((r) => {
         if (filtro === 'activas' && !activa(r)) return false
         if (filtro === 'pendiente' && r.estado !== 'pendiente') return false
         if (filtro === 'cancelada' && r.estado !== 'cancelada') return false
         if (filtro === 'deuda' && r.saldo <= 0) return false
-        return !t || `${r.clienteNombre} ${r.unidadCodigo}`.toLowerCase().includes(t)
+        return !t || `${r.clienteNombre} ${r.unidadCodigo} ${r.externoId ?? ''}`.toLowerCase().includes(t)
       })
       .sort((a, b) => a.desde.localeCompare(b.desde) || a.unidadCodigo.localeCompare(b.unidadCodigo, 'es', { numeric: true }))
   }, [reservas.datos, pagado, filtro, buscar])
@@ -59,7 +62,7 @@ export function Reservas() {
   function exportar() {
     descargar(`reservas-${temporada.replace('/', '-')}.csv`, aCSV(
       filas.map((r) => ({ ...r, tipo: TIPOS_UNIDAD[r.unidadTipo], modalidad: MODALIDADES[r.modalidad], estado: ESTADOS_RESERVA[r.estado] })),
-      [['unidadCodigo', 'Sombra'], ['tipo', 'Tipo'], ['clienteNombre', 'Cliente'], ['desde', 'Desde'], ['hasta', 'Hasta'],
+      [['externoId', 'Nº sistema'], ['unidadCodigo', 'Unidad'], ['tipo', 'Tipo'], ['clienteNombre', 'Cliente'], ['desde', 'Desde'], ['hasta', 'Hasta'],
         ['modalidad', 'Modalidad'], ['precio', 'Precio'], ['pagado', 'Pagado'], ['saldo', 'Saldo'], ['estado', 'Estado'], ['notas', 'Notas']],
     ))
   }
@@ -89,8 +92,8 @@ export function Reservas() {
         </div>
         <ErrorCarga error={unidades.error ?? reservasDia.error} />
         {grupos.length === 0 && !unidades.cargando ? (
-          <Vacio titulo="No hay sombras cargadas">
-            {yo.rol === 'admin' ? 'Cargalas en Ajustes → Sombras.' : 'Pedile a un administrador que cargue las carpas y palapas.'}
+          <Vacio titulo="No hay unidades cargadas">
+            {yo.rol === 'admin' ? 'Importá el archivo del sistema de reservas o cargalas en Ajustes → Unidades.' : 'Pedile a un administrador que las cargue.'}
           </Vacio>
         ) : (
           <>
@@ -132,7 +135,7 @@ export function Reservas() {
             <button type="button" key={f} aria-pressed={filtro === f} onClick={() => setFiltro(f)}>{FILTROS[f]}</button>
           ))}
         </div>
-        <input className="input buscar" type="search" placeholder="Buscar cliente o sombra" value={buscar}
+        <input className="input buscar" type="search" placeholder="Buscar cliente, unidad o nº de reserva" value={buscar}
           onChange={(e) => setBuscar(e.target.value)} aria-label="Buscar" />
         <button type="button" className="btn btn-sec" onClick={exportar} disabled={!filas.length}><Download size={16} />CSV</button>
       </div>
@@ -145,7 +148,7 @@ export function Reservas() {
           <table>
             <thead>
               <tr>
-                <th>Sombra</th><th>Cliente</th><th className="ocultar-movil">Fechas</th><th className="ocultar-movil">Modalidad</th>
+                <th>Unidad</th><th>Cliente</th><th className="ocultar-movil">Fechas</th><th className="ocultar-movil">Modalidad</th>
                 <th className="num ocultar-movil">Precio</th><th className="num">Saldo</th><th className="ocultar-movil">Estado</th>
               </tr>
             </thead>
@@ -170,7 +173,7 @@ export function Reservas() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2}>{plural(filas.length, 'reserva', 'reservas')}</td>
+                <td colSpan={2}>{plural(new Set(filas.map(claveReserva)).size, 'reserva', 'reservas')}</td>
                 <td className="ocultar-movil" />
                 <td className="ocultar-movil" />
                 <td className="num ocultar-movil">{pesos(filas.filter(activa).reduce((n, r) => n + r.precio, 0))}</td>

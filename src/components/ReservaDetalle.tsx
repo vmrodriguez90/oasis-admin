@@ -6,7 +6,7 @@ import { C, actualizar, borrar, crear, q, useDoc, useLista } from '../lib/db'
 import { leerPesos, pesos } from '../lib/dinero'
 import { diasIncluidos, fechaCorta, hoy, plural, rango } from '../lib/fechas'
 import { esAdmin, puedeEditar } from '../lib/permisos'
-import { choques, saldo } from '../lib/reservas'
+import { choques, esPrincipal, pagadoDe, pagadoPorReserva, saldo } from '../lib/reservas'
 import { ESTADOS_RESERVA, METODOS_PAGO, MODALIDADES, TIPOS_UNIDAD, type MetodoPago } from '../lib/types'
 import { linkWhatsApp } from '../lib/whatsapp'
 import { useGuardar, useUsuario } from '../sesion'
@@ -21,6 +21,7 @@ export function ReservaDetalle({ id, onCerrar }: { id: string; onCerrar: () => v
   const reservas = useLista(r ? q.reservasDeTemporada(r.temporada) : null, `reservas:${r?.temporada}`)
   const [editando, setEditando] = useState(false)
   const [cobrando, setCobrando] = useState(false)
+  const [notas, setNotas] = useState<string | null>(null)
   const { guardar, guardando, error, setError } = useGuardar()
 
   if (editando && r) return <ReservaForm reserva={r} onCerrar={() => setEditando(false)} />
@@ -33,15 +34,19 @@ export function ReservaDetalle({ id, onCerrar }: { id: string; onCerrar: () => v
     )
   }
 
-  const pagado = pagos.datos.reduce((n, p) => n + p.monto, 0)
+  const importada = r.origen === 'importada'
+  const pagado = pagadoDe(r, pagadoPorReserva(pagos.datos))
   const debe = saldo(r, pagado)
-  const edita = puedeEditar(yo.rol)
+  // Las importadas se gestionan en el sistema de reservas: acá sólo se miran.
+  const edita = puedeEditar(yo.rol) && !importada
   const admin = esAdmin(yo.rol)
+  const hermanas = importada ? reservas.datos.filter((x) => x.externoId === r.externoId && x.id !== r.id) : []
+  const principal = hermanas.find(esPrincipal)
   const wa = cliente.dato?.telefono ? linkWhatsApp(cliente.dato.telefono) : null
   const pagosOrdenados = [...pagos.datos].sort((a, b) => b.fecha.localeCompare(a.fecha))
 
   async function cancelar() {
-    if (!r || !confirm(`¿Cancelar la reserva de ${r.clienteNombre} en ${r.unidadCodigo}? La sombra queda libre.`)) return
+    if (!r || !confirm(`¿Cancelar la reserva de ${r.clienteNombre} en ${r.unidadCodigo}? La unidad queda libre.`)) return
     await guardar(() => actualizar(C.reservas, r.id, { estado: 'cancelada' }), 'Reserva cancelada.')
   }
 
@@ -98,8 +103,13 @@ export function ReservaDetalle({ id, onCerrar }: { id: string; onCerrar: () => v
             {debe > 0 && <Etiqueta clase="deuda">Debe {pesos(debe)}</Etiqueta>}
             {debe === 0 && r.estado !== 'cancelada' && r.precio > 0 && <Etiqueta clase="confirmada">Pagada</Etiqueta>}
           </div>
+          {importada && (
+            <p className="nota">
+              Reserva #{r.externoId} del sistema de reservas. Se gestiona allá; acá se actualiza al volver a importar.
+            </p>
+          )}
           <dl className="ficha">
-            <dt>Sombra</dt><dd>{TIPOS_UNIDAD[r.unidadTipo]} {r.unidadCodigo}</dd>
+            <dt>Unidad</dt><dd>{TIPOS_UNIDAD[r.unidadTipo]} {r.unidadCodigo}</dd>
             <dt>Cliente</dt>
             <dd>
               <Link to={`/clientes/${r.clienteId}`} onClick={onCerrar}>{r.clienteNombre}</Link>
@@ -112,13 +122,44 @@ export function ReservaDetalle({ id, onCerrar }: { id: string; onCerrar: () => v
             </dd>
             <dt>Fechas</dt><dd>{rango(r.desde, r.hasta)} · {plural(diasIncluidos(r.desde, r.hasta), 'día', 'días')}</dd>
             <dt>Modalidad</dt><dd>{MODALIDADES[r.modalidad]} · temporada {r.temporada}</dd>
-            <dt>Precio</dt><dd>{pesos(r.precio)}</dd>
-            <dt>Pagado</dt><dd>{pesos(pagado)}</dd>
+            {hermanas.length > 0 && (
+              <><dt>Misma reserva</dt><dd>{hermanas.map((x) => `${TIPOS_UNIDAD[x.unidadTipo]} ${x.unidadCodigo}`).join(', ')}</dd></>
+            )}
+            {esPrincipal(r) ? (
+              <>
+                <dt>Precio</dt>
+                <dd>{pesos(r.precio)}{importada && r.precio <= 1 && <span className="secundario"> · sin importe cargado en el sistema</span>}</dd>
+                <dt>Pagado</dt><dd>{pesos(pagado)}</dd>
+              </>
+            ) : (
+              <><dt>Precio</dt><dd className="secundario">Incluido en {principal ? principal.unidadCodigo : 'la unidad principal'}</dd></>
+            )}
+            {r.reservadaEl && (<><dt>Reservada el</dt><dd>{fechaCorta(r.reservadaEl)} {r.reservadaEl.slice(0, 4)}</dd></>)}
             {r.notas && (<><dt>Notas</dt><dd style={{ whiteSpace: 'pre-wrap' }}>{r.notas}</dd></>)}
             <dt>Cargada</dt>
             <dd className="secundario">{r.creado ? r.creado.toDate().toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : '—'} por {r.creadoPor}</dd>
           </dl>
 
+          {importada && admin && (
+            notas == null ? (
+              <button type="button" className="btn btn-sec btn-chico" style={{ justifySelf: 'start' }} onClick={() => setNotas(r.notas)}>
+                {r.notas ? 'Editar notas' : 'Agregar notas'}
+              </button>
+            ) : (
+              <Campo label="Notas" ayuda="Se conservan al volver a importar.">
+                <textarea value={notas} onChange={(e) => setNotas(e.target.value)} maxLength={2000} autoFocus />
+                <span className="acciones" style={{ marginTop: 6 }}>
+                  <button type="button" className="btn btn-sec btn-chico" onClick={() => setNotas(null)}>Cancelar</button>
+                  <button type="button" className="btn btn-chico" disabled={guardando}
+                    onClick={async () => {
+                      if (await guardar(() => actualizar(C.reservas, r.id, { notas: notas.trim() }), 'Notas guardadas.')) setNotas(null)
+                    }}>Guardar notas</button>
+                </span>
+              </Campo>
+            )
+          )}
+
+          {!importada && (
           <div>
             <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Pagos</h3>
             {pagosOrdenados.length === 0 ? (
@@ -145,6 +186,7 @@ export function ReservaDetalle({ id, onCerrar }: { id: string; onCerrar: () => v
               </table>
             )}
           </div>
+          )}
           {error && <p className="aviso">{error}</p>}
         </div>
       </Modal>

@@ -10,7 +10,7 @@ import { C, borrar, q, useDoc, useLista } from '../lib/db'
 import { pesos } from '../lib/dinero'
 import { fechaCorta, plural, rango } from '../lib/fechas'
 import { esAdmin, puedeEditar } from '../lib/permisos'
-import { activa, pagadoPorReserva, saldo } from '../lib/reservas'
+import { activa, claveReserva, pagadoDe, pagadoPorReserva, saldo } from '../lib/reservas'
 import { ESTADOS_RESERVA, METODOS_PAGO, TIPOS_UNIDAD } from '../lib/types'
 import { linkWhatsApp } from '../lib/whatsapp'
 import { useGuardar, useUsuario } from '../sesion'
@@ -31,7 +31,10 @@ export function ClienteDetalle() {
   const filas = useMemo(() => {
     const pagado = pagadoPorReserva(pagos.datos)
     return reservas.datos
-      .map((r) => ({ ...r, saldo: saldo(r, pagado.get(r.id) ?? 0) }))
+      .map((r) => {
+        const p = pagadoDe(r, pagado)
+        return { ...r, pagado: p, saldo: saldo(r, p) }
+      })
       .sort((a, b) => b.desde.localeCompare(a.desde))
   }, [reservas.datos, pagos.datos])
 
@@ -39,7 +42,9 @@ export function ClienteDetalle() {
   if (!c) return <Vacio titulo="Este cliente no existe"><Link to="/clientes">Volver a clientes</Link></Vacio>
 
   const deuda = filas.reduce((n, r) => n + r.saldo, 0)
-  const total = pagos.datos.reduce((n, p) => n + p.monto, 0)
+  // Lo cargado acá más lo que el sistema de reservas da por cobrado en las importadas.
+  const total = filas.reduce((n, r) => n + r.pagado, 0)
+  const importadas = filas.some((r) => r.origen === 'importada')
   const wa = linkWhatsApp(c.telefono)
   const edita = puedeEditar(yo.rol)
 
@@ -71,11 +76,13 @@ export function ClienteDetalle() {
         <div className="tarjeta">
           <div className="cifra-label">Pagó en total</div>
           <div className="cifra">{pesos(total)}</div>
-          <div className="cifra-sub">{plural(pagos.datos.length, 'pago', 'pagos')}</div>
+          <div className="cifra-sub">
+            {importadas ? 'según el sistema de reservas y los pagos de acá' : plural(pagos.datos.length, 'pago', 'pagos')}
+          </div>
         </div>
         <div className="tarjeta">
           <div className="cifra-label">Reservas</div>
-          <div className="cifra">{filas.filter(activa).length}</div>
+          <div className="cifra">{new Set(filas.filter(activa).map(claveReserva)).size}</div>
           <div className="cifra-sub">{plural(new Set(filas.map((r) => r.temporada)).size, 'temporada', 'temporadas')}</div>
         </div>
       </div>
@@ -97,8 +104,12 @@ export function ClienteDetalle() {
         </section>
 
         <section className="tarjeta">
-          <h2>Pagos</h2>
-          {pagos.datos.length === 0 ? <p className="secundario" style={{ marginTop: 8 }}>Sin pagos.</p> : (
+          <h2>Pagos cargados acá</h2>
+          {pagos.datos.length === 0 ? (
+            <p className="secundario" style={{ marginTop: 8 }}>
+              {importadas ? 'Los cobros de las reservas importadas están en el sistema de reservas.' : 'Sin pagos.'}
+            </p>
+          ) : (
             <table style={{ marginTop: 6 }}>
               <tbody>
                 {[...pagos.datos].sort((a, b) => b.fecha.localeCompare(a.fecha)).map((p) => (
@@ -119,14 +130,17 @@ export function ClienteDetalle() {
       <div className="tabla-envoltorio">
         {filas.length === 0 ? <Vacio titulo="Sin reservas" /> : (
           <table>
-            <thead><tr><th>Temporada</th><th>Sombra</th><th>Fechas</th><th className="num">Precio</th><th className="num">Saldo</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Temporada</th><th>Unidad</th><th>Fechas</th><th className="num">Precio</th><th className="num">Saldo</th><th>Estado</th></tr></thead>
             <tbody>
               {filas.map((r) => (
                 <tr key={r.id} className="clic" tabIndex={0} onClick={() => setVerId(r.id)} onKeyDown={(e) => e.key === 'Enter' && setVerId(r.id)}>
                   <td>{r.temporada}</td>
-                  <td>{TIPOS_UNIDAD[r.unidadTipo]} <b>{r.unidadCodigo}</b></td>
+                  <td>
+                    {TIPOS_UNIDAD[r.unidadTipo]} <b>{r.unidadCodigo}</b>
+                    {r.externoId && <div className="secundario">#{r.externoId}</div>}
+                  </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{rango(r.desde, r.hasta)}</td>
-                  <td className="num">{pesos(r.precio)}</td>
+                  <td className="num">{r.precio || !r.externoId ? pesos(r.precio) : <span className="secundario">en otra unidad</span>}</td>
                   <td className={r.saldo > 0 ? 'num deuda' : 'num'}>{r.saldo > 0 ? pesos(r.saldo) : '—'}</td>
                   <td><Etiqueta clase={r.estado}>{ESTADOS_RESERVA[r.estado]}</Etiqueta></td>
                 </tr>

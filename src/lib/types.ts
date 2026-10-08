@@ -11,11 +11,17 @@ export const ROLES: Record<Rol, string> = {
   lectura: 'Sólo lectura',
 }
 
-export type TipoUnidad = 'carpa' | 'palapa' | 'guorum'
+// Los mismos tipos que usa el sistema de reservas del club, en ese orden.
+export type TipoUnidad = 'carpa' | 'sombrilla' | 'guorum' | 'cochera' | 'quincho'
 export const TIPOS_UNIDAD: Record<TipoUnidad, string> = {
   carpa: 'Carpa',
-  palapa: 'Palapa',
+  sombrilla: 'Sombrilla',
   guorum: 'Guorum',
+  cochera: 'Cochera',
+  quincho: 'Quincho',
+}
+export const PREFIJO_UNIDAD: Record<TipoUnidad, string> = {
+  carpa: 'C-', sombrilla: 'S-', guorum: 'G-', cochera: 'CO-', quincho: 'Q-',
 }
 
 export type Modalidad = 'dia' | 'semana' | 'quincena' | 'mes' | 'temporada'
@@ -80,7 +86,7 @@ export interface Staff {
   activo: boolean
 }
 
-/** unidades/{id}: el inventario de sombras. */
+/** unidades/{id}: el inventario: carpas, sombrillas, guorums, cocheras y el quincho. */
 export interface Unidad {
   codigo: string
   tipo: TipoUnidad
@@ -98,7 +104,17 @@ export interface Cliente extends Auditado {
   notas: string
 }
 
-/** reservas/{id}. Denormaliza código de unidad y nombre de cliente para listar sin joins. */
+export type OrigenReserva = 'manual' | 'importada'
+
+/**
+ * reservas/{id}: una unidad, un cliente, un rango de fechas. Denormaliza
+ * código de unidad y nombre de cliente para listar sin joins.
+ *
+ * Las importadas vienen del sistema de reservas del club: una reserva de allá
+ * con varias unidades (carpa + cochera) es acá un documento por unidad, todos
+ * con el mismo `externoId`. El importe y el saldo vienen sólo en la unidad
+ * principal; las demás llevan precio 0 y `saldoExterno` null.
+ */
 export interface Reserva extends Auditado {
   unidadId: string
   unidadCodigo: string
@@ -114,6 +130,24 @@ export interface Reserva extends Auditado {
   precio: number
   estado: EstadoReserva
   notas: string
+  origen: OrigenReserva
+  /** Número de reserva en el sistema de reservas («#900123»). */
+  externoId: string | null
+  /** Saldo que informa el sistema de reservas. Negativo si pagó de más. */
+  saldoExterno: number | null
+  /** Día en que se hizo la reserva: para ver cuándo se vende y con cuánta anticipación. */
+  reservadaEl: Fecha | null
+}
+
+/** importaciones/{id}: registro de cada archivo importado. */
+export interface Importacion extends Auditado {
+  archivo: string
+  filas: number
+  reservas: number
+  creadas: number
+  actualizadas: number
+  clientesNuevos: number
+  unidadesNuevas: number
 }
 
 /** pagos/{id}. Hereda la temporada de su reserva, no de la fecha de cobro. */

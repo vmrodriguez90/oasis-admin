@@ -177,6 +177,7 @@ img { display: block; max-width: 100%; }
 .g-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .g-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .g-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ancho-2 { grid-column: span 2; }
 
 .tabla-envoltorio { overflow-x: auto; background: var(--superficie); border-radius: var(--radio); box-shadow: var(--sombra); }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -247,6 +248,11 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--filete); }
 .grafico .golpe { fill: transparent; cursor: default; }
 .grafico .golpe:focus-visible { outline: none; }
 .grafico g.activa .barra { fill: var(--oasis-grafito); }
+.grafico .area { fill: var(--dato); opacity: 0.1; }
+.grafico .linea { fill: none; stroke: var(--dato); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.grafico .punto { fill: var(--dato); stroke: var(--superficie); stroke-width: 2; }
+.grafico .cruz, .grafico .hoy { stroke: var(--texto-2); stroke-width: 1; }
+.tabla-desplazable { max-height: 320px; overflow-y: auto; }
 .tooltip {
   position: absolute; pointer-events: none; z-index: 2; transform: translate(-50%, calc(-100% - 8px));
   background: var(--texto); color: var(--oasis-crema); padding: 6px 10px; border-radius: 6px; font-size: 12.5px; white-space: nowrap;
@@ -254,9 +260,9 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--filete); }
 .tooltip strong { display: block; font-size: 14px; }
 .ver-tabla { background: none; border: 0; padding: 0; font-size: 12.5px; color: var(--texto-2); text-decoration: underline; cursor: pointer; }
 
-.barras-h { display: grid; gap: 10px; }
-.barras-h .fila { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 10px; font-size: 13.5px; }
-.barras-h .pista { height: 14px; }
+.barras-h { display: grid; grid-template-columns: max-content 1fr auto; align-items: center; gap: 10px 12px; font-size: 13.5px; }
+.barras-h .fila { display: contents; }
+.barras-h .pista { height: 14px; min-width: 40px; }
 .barras-h .pista > div { height: 100%; min-width: 2px; background: var(--dato); border-radius: 0 4px 4px 0; }
 .barras-h .num { font-variant-numeric: tabular-nums; font-weight: 550; }
 
@@ -317,7 +323,9 @@ dl.ficha dt { color: var(--texto-2); }
   .main { padding: 18px 16px 48px; }
   .cabecera h1 { font-size: 28px; }
   .cifra-heroe { font-size: 40px; }
-  .g-4 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  /* Los montos de 9 cifras no entran de a dos por fila: una tarjeta por fila. */
+  .g-4 { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .ancho-2 { grid-column: auto; }
   .tarjeta { padding: 14px 16px; }
   .ocultar-movil { display: none; }
   .solo-movil { display: block; }
@@ -329,3 +337,11 @@ dl.ficha dt { color: var(--texto-2); }
 .avisos { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 50; display: grid; gap: 8px; width: min(440px, calc(100vw - 32px)); }
 .aviso-flotante { background: var(--texto); color: var(--oasis-crema); padding: 10px 14px; border-radius: 8px; box-shadow: var(--sombra); font-size: 14px; }
 .aviso-flotante.error { background: var(--alerta); }
+
+/* ── Importar ───────────────────────────────────────────────────────── */
+.soltar {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 140px;
+  border: 1px dashed var(--oasis-verde); border-radius: var(--radio); background: var(--fondo); cursor: pointer; font-weight: 500;
+}
+.soltar:hover, .soltar:focus-within { border-color: var(--texto); }
+details.nota summary { cursor: pointer; font-weight: 500; }

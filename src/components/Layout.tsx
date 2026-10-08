@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
-  BarChart3, CalendarDays, LayoutGrid, LogOut, Menu, MessageCircle, ShieldCheck, Users, Wallet,
+  BarChart3, CalendarDays, LayoutGrid, LogOut, Menu, MessageCircle, ShieldCheck, Upload, Users, Wallet,
 } from 'lucide-react'
 import { salir, useUsuario } from '../sesion'
 import { esAdmin } from '../lib/permisos'
@@ -29,7 +29,8 @@ export function Layout() {
         {esAdmin(yo.rol) && (
           <>
             <div className="nav-sep">Ajustes</div>
-            <NavLink to="/sombras"><LayoutGrid size={18} />Sombras</NavLink>
+            <NavLink to="/unidades"><LayoutGrid size={18} />Unidades</NavLink>
+            <NavLink to="/importar"><Upload size={18} />Importar</NavLink>
             <NavLink to="/equipo"><ShieldCheck size={18} />Equipo</NavLink>
           </>
         )}

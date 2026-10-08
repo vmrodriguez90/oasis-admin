@@ -21,7 +21,12 @@ function como(email: string, verificado = true) {
 const reservaBase = (creadoPor: string) => ({
   unidadId: 'c01', unidadCodigo: 'C-01', unidadTipo: 'carpa', clienteId: 'cli1', clienteNombre: 'Ana',
   desde: '2027-01-10', hasta: '2027-01-24', modalidad: 'quincena', temporada: '2026/27', precio: 450000,
-  estado: 'confirmada', notas: '', creado: serverTimestamp(), creadoPor,
+  estado: 'confirmada', notas: '', origen: 'manual', externoId: null, saldoExterno: null, reservadaEl: '2026-10-01',
+  creado: serverTimestamp(), creadoPor,
+})
+
+const importada = (creadoPor: string) => ({
+  ...reservaBase(creadoPor), origen: 'importada', externoId: '900123', saldoExterno: 150000,
 })
 
 const pagoBase = (creadoPor: string) => ({
@@ -118,10 +123,12 @@ describe('equipo', () => {
 
 describe('unidades', () => {
   it('sólo el admin toca el inventario', async () => {
-    const u = { codigo: 'P-01', tipo: 'palapa', sector: '', orden: 1, activa: true }
+    const u = { codigo: 'S-01', tipo: 'sombrilla', sector: '', orden: 1, activa: true }
     await assertFails(setDoc(doc(como(MANAGER), 'unidades', 'p01'), u))
     await assertSucceeds(setDoc(doc(como(ADMIN), 'unidades', 'p01'), u))
     await assertFails(setDoc(doc(como(ADMIN), 'unidades', 'p02'), { ...u, tipo: 'yate' }))
+    await assertSucceeds(setDoc(doc(como(ADMIN), 'unidades', 'co33'), { ...u, codigo: 'CO-33', tipo: 'cochera' }))
+    await assertSucceeds(setDoc(doc(como(ADMIN), 'unidades', 'q01'), { ...u, codigo: 'Q-01', tipo: 'quincho' }))
   })
 })
 
@@ -161,6 +168,14 @@ describe('reservas', () => {
     await assertSucceeds(lote.commit())
   })
 
+  it('una manual no lleva número ni saldo del sistema de reservas', async () => {
+    const db = como(MANAGER)
+    await assertFails(addDoc(collection(db, 'reservas'), { ...reservaBase(MANAGER), externoId: '1' }))
+    await assertFails(addDoc(collection(db, 'reservas'), { ...reservaBase(MANAGER), saldoExterno: 0 }))
+    await assertFails(addDoc(collection(db, 'reservas'), { ...reservaBase(MANAGER), reservadaEl: 'ayer' }))
+    await assertFails(addDoc(collection(db, 'reservas'), { ...reservaBase(MANAGER), origen: 'web' }))
+  })
+
   it('rechaza unidades o clientes que no existen y campos de más', async () => {
     const db = como(MANAGER)
     await assertFails(addDoc(collection(db, 'reservas'), { ...reservaBase(MANAGER), unidadId: 'nope' }))
@@ -174,6 +189,51 @@ describe('reservas', () => {
     await assertFails(updateDoc(doc(db, 'reservas/res1'), { creadoPor: ADMIN }))
     await assertFails(deleteDoc(doc(db, 'reservas/res1')))
     await assertSucceeds(deleteDoc(doc(como(ADMIN), 'reservas/res1')))
+  })
+})
+
+describe('reservas importadas', () => {
+  it('sólo un admin las crea', async () => {
+    await assertFails(setDoc(doc(como(MANAGER), 'reservas', 'imp-1'), importada(MANAGER)))
+    await assertSucceeds(setDoc(doc(como(ADMIN), 'reservas', 'imp-1'), importada(ADMIN)))
+  })
+
+  it('aceptan saldo negativo (pagó de más) y la unidad extra sin saldo', async () => {
+    const db = como(ADMIN)
+    await assertSucceeds(setDoc(doc(db, 'reservas', 'imp-2'), { ...importada(ADMIN), saldoExterno: -20000 }))
+    await assertSucceeds(setDoc(doc(db, 'reservas', 'imp-3'), { ...importada(ADMIN), precio: 0, saldoExterno: null }))
+    await assertFails(setDoc(doc(db, 'reservas', 'imp-4'), { ...importada(ADMIN), saldoExterno: 10.5 }))
+  })
+
+  it('el encargado no las edita, y nadie cambia el origen', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'reservas', 'imp-1'), { ...importada(ADMIN), creado: new Date() })
+    })
+    await assertFails(updateDoc(doc(como(MANAGER), 'reservas/imp-1'), { estado: 'cancelada' }))
+    await assertSucceeds(updateDoc(doc(como(ADMIN), 'reservas/imp-1'), { estado: 'cancelada', saldoExterno: 0 }))
+    await assertFails(updateDoc(doc(como(ADMIN), 'reservas/imp-1'), { origen: 'manual', externoId: null, saldoExterno: null }))
+    await assertFails(updateDoc(doc(como(MANAGER), 'reservas/res1'), { origen: 'importada', externoId: '9', saldoExterno: 0 }))
+  })
+
+  it('no reciben pagos: se cobran en el sistema de reservas', async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      await setDoc(doc(ctx.firestore(), 'reservas', 'imp-1'), { ...importada(ADMIN), creado: new Date() })
+    })
+    await assertFails(addDoc(collection(como(ADMIN), 'pagos'), { ...pagoBase(ADMIN), reservaId: 'imp-1' }))
+  })
+})
+
+describe('importaciones', () => {
+  const registro = (creadoPor: string) => ({
+    archivo: 'Reservas_20270101120000.xls', filas: 120, reservas: 100, creadas: 120, actualizadas: 0,
+    clientesNuevos: 90, unidadesNuevas: 40, creado: serverTimestamp(), creadoPor,
+  })
+
+  it('sólo un admin las registra, y todos las leen', async () => {
+    await assertFails(addDoc(collection(como(MANAGER), 'importaciones'), registro(MANAGER)))
+    await assertSucceeds(addDoc(collection(como(ADMIN), 'importaciones'), registro(ADMIN)))
+    await assertSucceeds(getDocs(collection(como(LECTOR), 'importaciones')))
+    await assertFails(addDoc(collection(como(ADMIN), 'importaciones'), { ...registro(ADMIN), filas: -1 }))
   })
 })
 
@@ -216,7 +276,7 @@ describe('clientes y consultas', () => {
       creado: serverTimestamp(), creadoPor: MANAGER,
     }))
     await assertSucceeds(addDoc(collection(db, 'consultas'), {
-      nombre: 'Caro', contacto: '2291 111111', canal: 'whatsapp', interes: 'palapa', fechas: 'enero',
+      nombre: 'Caro', contacto: '2291 111111', canal: 'whatsapp', interes: 'cochera', fechas: 'enero',
       mensaje: '', estado: 'nueva', clienteId: null, creado: serverTimestamp(), creadoPor: MANAGER,
     }))
   })

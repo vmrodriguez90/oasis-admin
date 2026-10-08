@@ -3,7 +3,7 @@ rules_version = '2';
 // Quién puede qué. La app esconde los botones que no corresponden, pero la
 // seguridad real es esta: cualquiera puede abrir la consola del navegador.
 //
-//   admin    todo, más el equipo y el inventario de sombras
+//   admin    todo, más el equipo, el inventario y la importación de reservas
 //   manager  carga y edita reservas, clientes, pagos y consultas
 //   lectura  ve todo, no escribe nada
 //
@@ -39,6 +39,9 @@ service cloud.firestore {
     }
 
     // ── Validación ───────────────────────────────────────────────────────
+    function tipoUnidad(v) {
+      return v in ['carpa', 'sombrilla', 'guorum', 'cochera', 'quincho'];
+    }
     function campos(lista) {
       return request.resource.data.keys().hasOnly(lista) && request.resource.data.keys().hasAll(lista);
     }
@@ -91,12 +94,12 @@ service cloud.firestore {
       allow delete: if admin() && mail != email();
     }
 
-    // ── Inventario de sombras ────────────────────────────────────────────
+    // ── Inventario ───────────────────────────────────────────────────────
     function unidadValida() {
       let d = request.resource.data;
       return campos(['codigo', 'tipo', 'sector', 'orden', 'activa'])
         && requerido(d.codigo, 20)
-        && d.tipo in ['carpa', 'palapa', 'guorum']
+        && tipoUnidad(d.tipo)
         && texto(d.sector, 40)
         && d.orden is int
         && d.activa is bool;
@@ -127,30 +130,43 @@ service cloud.firestore {
     }
 
     // ── Reservas ─────────────────────────────────────────────────────────
-    // Que dos reservas no se pisen en la misma sombra lo controla la app al
+    // Que dos reservas no se pisen en la misma unidad lo controla la app al
     // guardar; las reglas no pueden consultar otros documentos por rango.
     function reservaValida() {
       let d = request.resource.data;
       return campos(['unidadId', 'unidadCodigo', 'unidadTipo', 'clienteId', 'clienteNombre', 'desde', 'hasta',
-                     'modalidad', 'temporada', 'precio', 'estado', 'notas', 'creado', 'creadoPor'])
+                     'modalidad', 'temporada', 'precio', 'estado', 'notas', 'origen', 'externoId', 'saldoExterno',
+                     'reservadaEl', 'creado', 'creadoPor'])
         // existsAfter: el cliente puede llegar en el mismo lote que la reserva.
         && existsAfter(/databases/$(database)/documents/unidades/$(d.unidadId))
         && existsAfter(/databases/$(database)/documents/clientes/$(d.clienteId))
         && requerido(d.unidadCodigo, 20)
-        && d.unidadTipo in ['carpa', 'palapa', 'guorum']
+        && tipoUnidad(d.unidadTipo)
         && requerido(d.clienteNombre, 120)
         && fecha(d.desde) && fecha(d.hasta) && d.desde <= d.hasta
         && d.temporada == temporadaDe(d.desde)
         && d.modalidad in ['dia', 'semana', 'quincena', 'mes', 'temporada']
         && pesos(d.precio)
         && d.estado in ['pendiente', 'confirmada', 'cancelada']
-        && texto(d.notas, 2000);
+        && texto(d.notas, 2000)
+        && d.origen in ['manual', 'importada']
+        && (d.reservadaEl == null || fecha(d.reservadaEl))
+        && (d.externoId == null || requerido(d.externoId, 30))
+        && (d.saldoExterno == null || (d.saldoExterno is int && d.saldoExterno >= -1000000000 && d.saldoExterno <= 1000000000))
+        // Número y saldo del sistema de reservas, sólo en las importadas.
+        && (d.origen == 'importada' || (d.externoId == null && d.saldoExterno == null));
+    }
+    // Las importadas se gestionan en el sistema de reservas del club: acá sólo
+    // las crea o pone al día un admin al importar.
+    function reservaEditable() {
+      return request.resource.data.origen == 'importada' ? admin() : edita();
     }
 
     match /reservas/{id} {
       allow read: if lee();
-      allow create: if edita() && altaAuditada() && reservaValida();
-      allow update: if edita() && auditoriaIntacta() && reservaValida();
+      allow create: if reservaEditable() && altaAuditada() && reservaValida();
+      allow update: if reservaEditable() && request.resource.data.origen == resource.data.origen
+        && auditoriaIntacta() && reservaValida();
       // El encargado cancela; borrar queda para corregir errores de carga.
       allow delete: if admin();
     }
@@ -161,6 +177,7 @@ service cloud.firestore {
       let reserva = get(/databases/$(database)/documents/reservas/$(d.reservaId)).data;
       return campos(['reservaId', 'clienteId', 'clienteNombre', 'unidadCodigo', 'temporada', 'monto', 'metodo',
                      'fecha', 'nota', 'creado', 'creadoPor'])
+        && reserva.origen == 'manual'
         && d.clienteId == reserva.clienteId
         && d.temporada == reserva.temporada
         && requerido(d.clienteNombre, 120)
@@ -176,7 +193,7 @@ service cloud.firestore {
       allow create: if edita() && altaAuditada() && pagoValido();
       // Un pago no se edita: si se cargó mal, un admin lo borra y se vuelve a
       // cargar. Así cada cobro queda firmado por quien lo registró. Sólo se
-      // ponen al día las copias del nombre del cliente y el código de la sombra
+      // ponen al día las copias del nombre del cliente y el código de la unidad
       // cuando cambian los originales.
       allow update: if edita()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['clienteNombre', 'unidadCodigo'])
@@ -193,7 +210,7 @@ service cloud.firestore {
         && requerido(d.nombre, 120)
         && texto(d.contacto, 120)
         && d.canal in ['whatsapp', 'telefono', 'email', 'instagram', 'presencial', 'web']
-        && d.interes in ['carpa', 'palapa', 'guorum', 'evento', 'otro']
+        && (tipoUnidad(d.interes) || d.interes in ['evento', 'otro'])
         && texto(d.fechas, 120)
         && texto(d.mensaje, 2000)
         && d.estado in ['nueva', 'en_curso', 'ganada', 'perdida']
@@ -204,6 +221,23 @@ service cloud.firestore {
       allow read: if lee();
       allow create: if edita() && altaAuditada() && consultaValida();
       allow update: if edita() && auditoriaIntacta() && consultaValida();
+      allow delete: if admin();
+    }
+
+    // ── Importaciones ────────────────────────────────────────────────────
+    function cuenta(v) {
+      return v is int && v >= 0 && v <= 100000;
+    }
+
+    match /importaciones/{id} {
+      allow read: if lee();
+      allow create: if admin() && altaAuditada()
+        && campos(['archivo', 'filas', 'reservas', 'creadas', 'actualizadas', 'clientesNuevos', 'unidadesNuevas',
+                   'creado', 'creadoPor'])
+        && requerido(request.resource.data.archivo, 200)
+        && cuenta(request.resource.data.filas) && cuenta(request.resource.data.reservas)
+        && cuenta(request.resource.data.creadas) && cuenta(request.resource.data.actualizadas)
+        && cuenta(request.resource.data.clientesNuevos) && cuenta(request.resource.data.unidadesNuevas);
       allow delete: if admin();
     }
   }

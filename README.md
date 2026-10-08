@@ -1,7 +1,8 @@
 # oasis-admin
 
-Admin interno de **OASIS Club de Mar** (Miramar): reservas de carpas y
-palapas, clientes y pagos, consultas y estadísticas de la temporada.
+Admin interno de **OASIS Club de Mar** (Miramar): reservas de carpas,
+sombrillas, guorums y cocheras, clientes y pagos, consultas y estadísticas de
+la temporada, con los datos del sistema de reservas del club.
 
 El sitio público ([oasismiramar.com.ar](https://oasismiramar.com.ar), repo
 `oasis-club-miramar`) **no cambia**: sigue siendo HTML estático en GitHub
@@ -19,12 +20,13 @@ admin.oasismiramar.com.ar    Firebase Hosting este admin
 
 | Sección | |
 |---|---|
-| **Estadísticas** | Cobrado y pendiente de la temporada, ocupación de hoy por tipo, quién entra y quién sale, ocupación de los próximos 14 días, cobros por mes y por medio de pago, consultas y conversión. |
-| **Reservas** | Mapa del día con cada sombra libre u ocupada (tocás una libre y reservás). Lista de la temporada con filtros, saldos y exportación a CSV. No deja reservar una sombra que ya está tomada en esas fechas. |
+| **Estadísticas** | Vendido, cobrado y pendiente de la temporada; ritmo de ventas contra la temporada anterior; ocupación diaria por tipo de unidad; ventas por mes en que se reservó y por tipo; duración de las estadías; anticipación; clientes que vuelven y los que más compraron; consultas y conversión. |
+| **Reservas** | Mapa del día con cada unidad libre u ocupada (tocás una libre y reservás). Lista de la temporada con filtros, saldos y exportación a CSV. No deja reservar una unidad que ya está tomada en esas fechas. |
 | **Clientes** | Ficha con historia de todas las temporadas, saldo, pagos y link directo a WhatsApp. |
 | **Pagos** | Se registran desde cada reserva (seña, cuotas, saldo). Listado por mes y medio de pago, exportable a CSV. |
 | **Consultas** | Pedidos que llegan por WhatsApp, teléfono, redes o en persona, con estado (nueva → en curso → ganada/perdida) y «Hacer cliente» en un toque. |
-| **Sombras** *(admin)* | Inventario de carpas, palapas y guorums. Se cargan de a muchas («C-01 a C-40»). |
+| **Unidades** *(admin)* | Inventario de carpas, sombrillas, guorums, cocheras y quincho. Se crean solas al importar, o de a muchas («C-01 a C-40»). |
+| **Importar** *(admin)* | Trae las reservas del sistema de reservas del club desde su archivo de exportación. |
 | **Equipo** *(admin)* | Quién entra y con qué rol. |
 
 Funciona en el celular, y sin señal sigue mostrando lo último cargado: lo que
@@ -41,6 +43,32 @@ se carga offline se sube solo cuando vuelve la conexión.
 La seguridad está en [`firestore.rules`](firestore.rules), no en la app: el
 navegador se puede manipular, las reglas no. Están probadas en
 [`tests/rules.test.ts`](tests/rules.test.ts).
+
+## Importar del sistema de reservas
+
+El sistema de reservas del club exporta un archivo `Reservas_AAAAMMDDhhmmss.xls`
+(por dentro es una tabla HTML) con `# · Estado · Unidad · Cliente · E-mail ·
+Teléfono · Desde · Hasta · Cant dias · Importe · Saldo · Fecha de reserva`.
+En **Ajustes → Importar** se sube tal cual; el admin muestra qué va a crear y
+qué va a cambiar antes de escribir nada.
+
+- **Se puede reimportar siempre**: cada fila tiene un id fijo
+  (`imp-<#>-<unidad>`), así que un archivo nuevo pone al día estados, fechas
+  y saldos sin duplicar. Lo que no cambió no se toca.
+- Una reserva con varias unidades (carpa + cochera) son varias filas con el
+  mismo `#`: acá es un documento por unidad, y el importe y el saldo quedan en
+  la principal (la primera fila).
+- Estados: *Finalizada* y *Confirmada* → confirmada; *Pre-confirmada* →
+  pendiente; *Cancelada* → cancelada. La modalidad se deduce de los días.
+- Las unidades se crean con código por tipo (`Carpa #8` → `C-08`, `Guarum #7`
+  → `G-07`, `Sombrilla #1` → `S-01`, `Cochera #33` → `CO-33`) y los clientes se
+  reconocen por email, o por nombre y teléfono si no dejaron email.
+- **Las importadas no se editan acá**: se gestionan en el sistema de reservas.
+  Un admin les puede agregar notas, que se conservan al reimportar.
+- Lo cobrado de una importada es *importe − saldo* según el sistema; los pagos
+  del admin son sólo para las reservas cargadas acá.
+- El archivo tiene datos personales de los clientes: **no se sube al repo**
+  (está en `.gitignore`).
 
 ## Puesta en marcha (una sola vez)
 
@@ -100,11 +128,12 @@ npm run build
 | Colección | Qué guarda |
 |---|---|
 | `staff/{email}` | `nombre`, `rol` (`admin`/`manager`/`lectura`), `activo` |
-| `unidades` | `codigo` («C-12»), `tipo` (`carpa`/`palapa`/`guorum`), `sector`, `orden`, `activa` |
+| `unidades` | `codigo` («C-12»), `tipo` (`carpa`/`sombrilla`/`guorum`/`cochera`/`quincho`), `sector`, `orden`, `activa` |
 | `clientes` | `nombre`, `telefono`, `email`, `documento`, `notas` |
-| `reservas` | `unidadId`, `clienteId`, `desde`, `hasta`, `modalidad`, `temporada`, `precio`, `estado`, `notas` |
+| `reservas` | `unidadId`, `clienteId`, `desde`, `hasta`, `modalidad`, `temporada`, `precio`, `estado`, `notas`, `origen` (`manual`/`importada`), `externoId` (# del sistema), `saldoExterno`, `reservadaEl` |
 | `pagos` | `reservaId`, `clienteId`, `temporada`, `monto`, `metodo`, `fecha`, `nota` |
 | `consultas` | `nombre`, `contacto`, `canal`, `interes`, `fechas`, `mensaje`, `estado`, `clienteId` |
+| `importaciones` | `archivo`, `filas`, `reservas`, `creadas`, `actualizadas`, `clientesNuevos`, `unidadesNuevas` |
 
 Decisiones que conviene conocer:
 
@@ -116,11 +145,14 @@ Decisiones que conviene conocer:
 - **Los pagos no se editan**: quedan firmados por quien los cargó. Si hay un
   error, un admin lo borra y se carga de nuevo.
 - Reservas y pagos guardan **copia** del nombre del cliente y del código de la
-  sombra, para listar sin cruzar colecciones; al renombrar, la app pone al día
+  unidad, para listar sin cruzar colecciones; al renombrar, la app pone al día
   las copias.
 - Que dos reservas no se pisen lo controla la app al guardar. Si dos personas
-  reservaran la misma sombra en el mismo segundo desde dos celulares, podrían
+  reservaran la misma unidad en el mismo segundo desde dos celulares, podrían
   entrar las dos; el mapa lo mostraría y se cancela una.
+- Las escrituras masivas (importar, renombrar) van de a una y en paralelo, no
+  en lotes: las reglas validan cada reserva contra su unidad y su cliente, y
+  Firestore admite 20 de esas lecturas por lote.
 
 ## Próximos pasos posibles
 

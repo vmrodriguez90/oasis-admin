@@ -4,7 +4,8 @@ Admin interno de OASIS Club de Mar. Vite + React + TypeScript sobre Firebase
 (Auth con Google, Firestore, Hosting). El sitio público vive en otro repo
 (`oasis-club-miramar`, GitHub Pages) y **no** depende de este.
 
-- `src/lib/` — lógica pura (fechas, saldos, choques, estadísticas) con tests en `*.test.ts`
+- `src/lib/` — lógica pura (fechas, saldos, choques, estadísticas, importación) con tests en `*.test.ts`
+- `src/lib/importar.ts` — lee el export del sistema de reservas y arma el plan; `src/pages/Importar.tsx` lo ejecuta
 - `src/lib/db.ts` — colecciones tipadas, `useLista`/`useDoc` en vivo, altas con auditoría
 - `src/sesion.tsx` — sesión, rol, temporada elegida, avisos y `useGuardar`
 - `src/pages/` — una por sección; `src/components/` — modales y piezas compartidas
@@ -30,6 +31,11 @@ Para ver la app: `npm run emu`, `npm run semilla`, `npm run dev:emu`.
 - Escrituras desde la UI con `useGuardar()`, que avisa si quedó pendiente por
   falta de señal en vez de dejar el botón colgado.
 - Fechas `'YYYY-MM-DD'` (ver `src/lib/fechas.ts`); montos en pesos enteros.
+- Saldos y cobros siempre con `pagadoDe()`, y conteos de reservas con
+  `claveReserva()`: una importada con carpa y cochera son dos documentos y una
+  sola reserva, con la plata en la principal (`esPrincipal()`).
+- **Nunca commitear exports del sistema de reservas** (`*.xls`): tienen datos
+  personales. Los tests de importación usan datos inventados.
 - Marca: misma paleta y tipografías que el sitio (ver `BRAND.md` en
   `oasis-club-miramar`). **Ningún hex fuera de `:root`** en `src/styles.css`;
   arena (`--acento`) nunca lleva texto. Verificar con

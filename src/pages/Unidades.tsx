@@ -5,12 +5,10 @@ import { Cabecera, Campo, ErrorCarga, Modal, Vacio } from '../components/ui'
 import { db } from '../firebase'
 import { C, propagarCambio, useLista } from '../lib/db'
 import { ordenarUnidades } from '../lib/reservas'
-import { TIPOS_UNIDAD, type ConId, type TipoUnidad, type Unidad } from '../lib/types'
+import { PREFIJO_UNIDAD, TIPOS_UNIDAD, type ConId, type TipoUnidad, type Unidad } from '../lib/types'
 import { useGuardar } from '../sesion'
 
-const PREFIJO: Record<TipoUnidad, string> = { carpa: 'C-', palapa: 'P-', guorum: 'G-' }
-
-export function Sombras() {
+export function Unidades() {
   const unidades = useLista(C.unidades, 'unidades')
   const [editar, setEditar] = useState<ConId<Unidad> | 'serie' | null>(null)
   const { guardar, error, setError } = useGuardar()
@@ -30,14 +28,14 @@ export function Sombras() {
 
   return (
     <>
-      <Cabecera titulo="Sombras" sub="Inventario de carpas, palapas y guorums. Las inactivas no aparecen en el mapa ni se pueden reservar.">
+      <Cabecera titulo="Unidades" sub="Carpas, sombrillas, guorums, cocheras y quincho. Las inactivas no aparecen en el mapa ni se pueden reservar.">
         <button type="button" className="btn" onClick={() => setEditar('serie')}><Plus size={17} />Agregar</button>
       </Cabecera>
       <ErrorCarga error={unidades.error} />
       {error && <p className="aviso" style={{ marginBottom: 12 }}>{error}</p>}
 
       {grupos.length === 0 ? (
-        <div className="tarjeta"><Vacio titulo={unidades.cargando ? 'Cargando…' : 'Todavía no hay sombras'}>Agregalas de a muchas: «C-01 a C-40».</Vacio></div>
+        <div className="tarjeta"><Vacio titulo={unidades.cargando ? 'Cargando…' : 'Todavía no hay unidades'}>Se crean solas al importar el archivo del sistema de reservas, o agregalas de a muchas: «C-01 a C-40».</Vacio></div>
       ) : grupos.map(([tipo, us]) => (
         <section key={tipo} style={{ marginBottom: 20 }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>{TIPOS_UNIDAD[tipo]}s · {us.filter((u) => u.activa).length} activas</h2>
@@ -74,7 +72,7 @@ export function Sombras() {
 
 function SerieForm({ existentes, onCerrar }: { existentes: ConId<Unidad>[]; onCerrar: () => void }) {
   const [tipo, setTipo] = useState<TipoUnidad>('carpa')
-  const [prefijo, setPrefijo] = useState(PREFIJO.carpa)
+  const [prefijo, setPrefijo] = useState(PREFIJO_UNIDAD.carpa)
   const [desde, setDesde] = useState('1')
   const [hasta, setHasta] = useState('1')
   const [sector, setSector] = useState('')
@@ -101,7 +99,7 @@ function SerieForm({ existentes, onCerrar }: { existentes: ConId<Unidad>[]; onCe
   }
 
   return (
-    <Modal titulo="Agregar sombras" onCerrar={onCerrar}>
+    <Modal titulo="Agregar unidades" onCerrar={onCerrar}>
       <form onSubmit={enviar}>
         <div className="modal-cuerpo">
           <div className="fila-campos">
@@ -109,7 +107,7 @@ function SerieForm({ existentes, onCerrar }: { existentes: ConId<Unidad>[]; onCe
               <select value={tipo} onChange={(e) => {
                 const t = e.target.value as TipoUnidad
                 setTipo(t)
-                setPrefijo(PREFIJO[t])
+                setPrefijo(PREFIJO_UNIDAD[t])
               }}>
                 {Object.entries(TIPOS_UNIDAD).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
@@ -151,7 +149,7 @@ function UnidadForm({ unidad, onCerrar }: { unidad: ConId<Unidad>; onCerrar: () 
     const ok = await guardar(async () => {
       await updateDoc(doc(C.unidades, unidad.id), { codigo: c, sector: sector.trim(), orden: Number(orden) })
       if (c !== unidad.codigo) await propagarCambio('unidadCodigo', 'unidadId', unidad.id, c)
-    }, 'Sombra actualizada.')
+    }, 'Unidad actualizada.')
     if (ok) onCerrar()
   }
 

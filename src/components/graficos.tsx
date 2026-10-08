@@ -155,7 +155,7 @@ export function BarrasH({ datos, formato }: { datos: Punto[]; formato: (n: numbe
   return (
     <div className="barras-h">
       {datos.map((d) => (
-        <div className="fila" key={d.etiqueta}>
+        <div className="fila" key={d.etiqueta} title={d.detalle}>
           <span>{d.etiqueta}</span>
           <div className="pista" aria-hidden="true">
             <div style={{ width: `${(d.valor / max) * 100}%` }} />
@@ -163,6 +163,164 @@ export function BarrasH({ datos, formato }: { datos: Punto[]; formato: (n: numbe
           <span className="num">{formato(d.valor)}</span>
         </div>
       ))}
+    </div>
+  )
+}
+
+export interface PuntoDia {
+  dia: string
+  valor: number
+  detalle: string
+}
+
+/**
+ * Una serie diaria (ocupación): línea de 2 px sobre un lavado del 10%, cruz
+ * que sigue al puntero o a las flechas del teclado, el pico rotulado y una
+ * marca en «hoy» si cae dentro.
+ */
+export function Linea({
+  datos, formato, maximo, titulo, marca, rotuloEje,
+}: {
+  datos: PuntoDia[]
+  formato: (n: number) => string
+  maximo?: number
+  titulo: string
+  marca?: string
+  /** Rótulo del eje X para un día, o null si ese día no lleva. */
+  rotuloEje: (dia: string) => string | null
+}) {
+  const [activo, setActivo] = useState<number | null>(null)
+  const [tabla, setTabla] = useState(false)
+  const [ref, W] = useAncho<HTMLDivElement>(600)
+
+  const H = 220
+  const arriba = 20
+  const abajo = 22
+  const alto = H - arriba - abajo
+  const maxDato = Math.max(0, ...datos.map((d) => d.valor))
+  const paso = pasoLindo(maximo ?? maxDato)
+  const tope = maximo ?? Math.max(paso, Math.ceil(maxDato / paso) * paso)
+  const ticks: number[] = []
+  for (let v = 0; v <= tope + 1e-9; v += paso) ticks.push(v)
+  const izq = Math.ceil(Math.max(...ticks.map((t) => anchoTexto(formato(t))))) + 10
+  const der = 8
+  const n = datos.length
+  const dx = n > 1 ? (W - izq - der) / (n - 1) : 0
+  const x = (i: number) => izq + i * dx
+  const y = (v: number) => arriba + alto - (v / tope) * alto
+
+  if (tabla) {
+    return (
+      <div ref={ref}>
+        <div className="tabla-desplazable">
+          <table>
+            <thead><tr><th scope="col">Día</th><th className="num" scope="col">{titulo}</th></tr></thead>
+            <tbody>
+              {datos.map((d) => <tr key={d.dia}><td>{d.detalle}</td><td className="num">{formato(d.valor)}</td></tr>)}
+            </tbody>
+          </table>
+        </div>
+        <button type="button" className="ver-tabla" onClick={() => setTabla(false)}>Ver gráfico</button>
+      </div>
+    )
+  }
+
+  if (!n) return <div ref={ref} />
+
+  const linea = datos.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d.valor).toFixed(1)}`).join('')
+  const area = `${linea}L${x(n - 1).toFixed(1)},${y(0)}L${x(0).toFixed(1)},${y(0)}Z`
+  const iPico = datos.findIndex((d) => d.valor === maxDato)
+  const iMarca = marca ? datos.findIndex((d) => d.dia === marca) : -1
+
+  // Rótulos del eje: los que pide rotuloEje, sin encimarse.
+  const rotulos: { i: number; t: string }[] = []
+  datos.forEach((d, i) => {
+    const t = rotuloEje(d.dia)
+    if (t == null) return
+    const prev = rotulos.at(-1)
+    if (!prev || x(i) - x(prev.i) >= anchoTexto(prev.t) + 10) rotulos.push({ i, t })
+    // El rótulo del primer día cede su lugar al primer mes, que orienta más.
+    else if (prev.i === 0) rotulos[rotulos.length - 1] = { i, t }
+  })
+
+  const mover = (i: number) => setActivo(Math.max(0, Math.min(n - 1, i)))
+  const act = activo != null ? datos[activo] : undefined
+
+  return (
+    <div className="grafico" ref={ref}>
+      <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={titulo}>
+        {ticks.map((t) => (
+          <g key={t}>
+            <line className="grilla-linea" x1={izq} x2={W - der} y1={y(t)} y2={y(t)} />
+            <text className="eje" x={izq - 6} y={y(t) + 4} textAnchor="end">{formato(t)}</text>
+          </g>
+        ))}
+        {rotulos.map((r) => (
+          <text key={r.i} className="eje" x={x(r.i)} y={H - 6} textAnchor="middle">{r.t}</text>
+        ))}
+        {iMarca >= 0 && (
+          <g>
+            <line className="hoy" x1={x(iMarca)} x2={x(iMarca)} y1={arriba - 4} y2={y(0)} />
+            <text className="eje" x={x(iMarca) + 4} y={arriba + 4}>hoy</text>
+          </g>
+        )}
+        <path className="area" d={area} />
+        <path className="linea" d={linea} />
+        {iPico >= 0 && maxDato > 0 && activo == null && (
+          <g>
+            <circle className="punto" cx={x(iPico)} cy={y(maxDato)} r={4} />
+            <text className="valor" x={x(iPico)} y={y(maxDato) - 9} textAnchor={iPico > n * 0.85 ? 'end' : iPico < n * 0.15 ? 'start' : 'middle'}>
+              {formato(maxDato)}
+            </text>
+          </g>
+        )}
+        {act && activo != null && (
+          <g>
+            <line className="cruz" x1={x(activo)} x2={x(activo)} y1={arriba} y2={y(0)} />
+            <circle className="punto" cx={x(activo)} cy={y(act.valor)} r={4} />
+          </g>
+        )}
+        <rect
+          className="golpe"
+          x={izq - dx / 2}
+          y={0}
+          width={W - izq - der + dx}
+          height={H - abajo}
+          tabIndex={0}
+          aria-label={`${titulo}: usá las flechas para recorrer los días`}
+          onPointerMove={(e) => {
+            const caja = e.currentTarget.ownerSVGElement!.getBoundingClientRect()
+            const px = ((e.clientX - caja.left) / caja.width) * W
+            mover(dx ? Math.round((px - izq) / dx) : 0)
+          }}
+          onPointerLeave={() => setActivo(null)}
+          onFocus={() => setActivo((a) => a ?? iPico)}
+          onBlur={() => setActivo(null)}
+          onKeyDown={(e) => {
+            const salto = e.shiftKey ? 7 : 1
+            if (e.key === 'ArrowRight') mover((activo ?? 0) + salto)
+            else if (e.key === 'ArrowLeft') mover((activo ?? 0) - salto)
+            else if (e.key === 'Home') mover(0)
+            else if (e.key === 'End') mover(n - 1)
+            else return
+            e.preventDefault()
+          }}
+        />
+      </svg>
+      {act && activo != null && (
+        <div
+          className="tooltip"
+          style={{
+            left: `${Math.min(Math.max(x(activo), 70), W - 70)}px`,
+            top: `${y(act.valor)}px`,
+          }}
+          aria-live="polite"
+        >
+          <strong>{formato(act.valor)}</strong>
+          {act.detalle}
+        </div>
+      )}
+      <button type="button" className="ver-tabla" onClick={() => setTabla(true)}>Ver tabla</button>
     </div>
   )
 }

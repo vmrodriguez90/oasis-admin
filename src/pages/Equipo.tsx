@@ -7,7 +7,7 @@ import { ROLES, type Rol } from '../lib/types'
 import { useGuardar, useUsuario } from '../sesion'
 
 const QUE_PUEDE: Record<Rol, string> = {
-  admin: 'Todo, más dar acceso y cargar las sombras.',
+  admin: 'Todo, más dar acceso, cargar unidades e importar reservas.',
   manager: 'Carga y edita reservas, clientes, pagos y consultas. No borra.',
   lectura: 'Ve todo, no cambia nada.',
 }

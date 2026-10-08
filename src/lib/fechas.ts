@@ -21,6 +21,24 @@ export function sumarDias(f: Fecha, n: number): Fecha {
   return desdeUTC(aUTC(f) + n * 86_400_000)
 }
 
+/** Días que van de una fecha a otra (negativo si la segunda es anterior). */
+export function diasEntre(desde: Fecha, hasta: Fecha): number {
+  return Math.round((aUTC(hasta) - aUTC(desde)) / 86_400_000)
+}
+
+/** El mismo día un año antes; el 29 de febrero pasa al 28. */
+export function unAnioAntes(f: Fecha): Fecha {
+  const [y, m, d] = f.split('-')
+  const r = `${Number(y) - 1}-${m}-${d}`
+  return esFechaValida(r) ? r : `${Number(y) - 1}-${m}-28`
+}
+
+/** La temporada anterior: '2026/27' -> '2025/26'. */
+export function temporadaAnterior(t: string): string {
+  const y = Number(t.slice(0, 4)) - 1
+  return `${y}/${String((y + 1) % 100).padStart(2, '0')}`
+}
+
 /** Días entre dos fechas, contando ambas puntas. */
 export function diasIncluidos(desde: Fecha, hasta: Fecha): number {
   return Math.round((aUTC(hasta) - aUTC(desde)) / 86_400_000) + 1
